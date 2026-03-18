@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SurTaal AI - Batch Studio</title>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Poppins:wght@500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div id="cursor-glow"></div>
+
+    <aside class="sidebar">
+        <div class="logo">
+            <div class="logo-icon"><i data-feather="activity"></i></div>
+            <h2>SurTaal<span class="dot">.</span>AI</h2>
+        </div>
+
+        <div class="upload-btn-wrapper">
+            <button class="btn-new-upload" onclick="document.getElementById('fileInput').click()">
+                <i data-feather="plus"></i> Add Songs
+            </button>
+            <input type="file" id="fileInput" accept=".mp3, .wav" multiple hidden>
+        </div>
+
+        <div class="playlist-header">
+            <span>SESSION TRACKS</span>
+            <span class="badge" id="track-count">0</span>
+        </div>
+
+        <div class="playlist-container" id="playlist">
+            <div class="empty-state">
+                <p>No tracks added</p>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <button class="btn-report" onclick="generateReport()">
+                <i data-feather="file-text"></i> Generate Report
+            </button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        
+        <section id="single-analysis">
+            <header>
+                <div class="header-left">
+                    <span class="status-indicator">LIVE ANALYSIS</span>
+                    <h1 id="current-filename">Select a track...</h1>
+                </div>
+                <div class="confidence-badge">
+                    CONFIDENCE: <span id="conf-val">--%</span>
+                </div>
+            </header>
+
+            <div class="player-card">
+                <div class="waveform-wrapper">
+                    <div id="waveform"></div>
+                </div>
+                <button id="playPauseBtn" class="btn-play"><i data-feather="play"></i></button>
+            </div>
+
+            <div class="hero-result">
+                <h3>PREDICTED GENRE</h3>
+                <h1 id="winner-text" class="glitch-text">---</h1>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card large">
+                    <canvas id="barChart"></canvas>
+                </div>
+                
+                <div class="chart-card">
+                    <h4>Genre Profile</h4>
+                    <canvas id="radarChart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <h4>Attributes Share Analysis</h4>
+                    <canvas id="doughnutChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section id="batch-analysis" class="hidden">
+            <div class="divider"></div>
+            <h2>Session Summary (Combined)</h2>
+            <div class="batch-stats">
+                <div class="stat-box">
+                    <span>Total Tracks</span>
+                    <h3 id="total-tracks">0</h3>
+                </div>
+                <div class="stat-box">
+                    <span>Dominant Genre</span>
+                    <h3 id="dominant-genre">---</h3>
+                </div>
+                <div class="stat-box">
+                    <span>Avg. Confidence</span>
+                    <h3 id="avg-confidence">0%</h3>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="report-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Session Report</h2>
+                <button class="btn-close-modal" onclick="closeModal()">×</button>
+            </div>
+            
+            <div class="report-body-scroll" id="report-body-content">
+                </div>
+
+            <div class="modal-footer">
+                <button class="btn-close-modal" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+   <script>
+        feather.replace();
+        
+        // --- STATE MANAGEMENT ---
+        let playlistData = []; 
+        let activeIndex = -1;
+        let wavesurfer;
+        let barChart, radarChart, doughnutChart;
+
+        // --- INIT WAVEFORM ---
+        wavesurfer = WaveSurfer.create({
+            container: '#waveform',
+            waveColor: 'rgba(255, 255, 255, 0.1)',
+            progressColor: '#00dc82',
+            cursorColor: '#fff',
+            barWidth: 3,
+            barRadius: 3,
+            height: 100,
+            responsive: true,
+            normalize: true
+        });
+
+        // Play/Pause Button Logic
+        document.getElementById('playPauseBtn').onclick = () => wavesurfer.playPause();
+
+        wavesurfer.on('play', () => {
+            const btn = document.getElementById('playPauseBtn');
+            btn.innerHTML = '<i data-feather="pause"></i>'; 
+            btn.classList.add('playing'); 
+            feather.replace();
+            const indicator = document.querySelector('.playlist-item.active .playing-indicator');
+            if(indicator) indicator.classList.add('is-playing');
+        });
+
+        wavesurfer.on('pause', () => {
+            const btn = document.getElementById('playPauseBtn');
+            btn.innerHTML = '<i data-feather="play"></i>'; 
+            btn.classList.remove('playing'); 
+            feather.replace();
+            const indicator = document.querySelector('.playlist-item.active .playing-indicator');
+            if(indicator) indicator.classList.remove('is-playing');
+        });
+
+        // --- FILE HANDLING ---
+        const fileInput = document.getElementById('fileInput');
+        fileInput.addEventListener('change', function() {
+            handleFiles(this.files);
+        });
+
+        async function handleFiles(files) {
+            if (files.length === 0) return;
+            const emptyState = document.querySelector('.empty-state');
+            if(emptyState) emptyState.remove();
+
+            for (let file of files) {
+                const id = Date.now() + Math.random();
+                addToPlaylistUI(file, id, "Analyzing...");
+
+                let formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const res = await fetch('/predict', { method: 'POST', body: formData });
+                    const data = await res.json();
+                    
+                    if (!data.error) {
+                        playlistData.push({ file, data, id });
+                        updatePlaylistUI(id, data.genre);
+                        if (playlistData.length === 1) loadTrack(0);
+                        updateBatchStats();
+                    }
+                } catch (e) {
+                    console.error(e);
+                    updatePlaylistUI(id, "Error");
+                }
+            }
+        }
+
+        // --- UI FUNCTIONS ---
+        function addToPlaylistUI(file, id, status) {
+            const list = document.getElementById('playlist');
+            const item = document.createElement('div');
+            item.className = 'playlist-item';
+            item.id = `item-${id}`;
+            
+            // Equalizer (Left) | Text | Delete (Right)
+            item.innerHTML = `
+                <div class="playing-indicator">
+                    <div class="bar"></div><div class="bar"></div><div class="bar"></div>
+                </div>
+                <div class="p-info">
+                    <div class="p-name">${file.name}</div>
+                    <div class="p-genre">${status}</div>
+                </div>
+                <button class="btn-delete-track" onclick="removeTrack(event, ${id})">
+                    <i data-feather="x"></i>
+                </button>
+            `;
+            list.appendChild(item);
+            feather.replace();
+        }
+
+        function updatePlaylistUI(id, genre) {
+            const item = document.getElementById(`item-${id}`);
+            if (item) {
+                item.querySelector('.p-genre').innerText = genre;
+                item.style.opacity = "1";
+                item.onclick = (e) => {
+                    if(e.target.closest('.btn-delete-track')) return;
+                    const index = playlistData.findIndex(p => p.id === id);
+                    loadTrack(index);
+                };
+            }
+            document.getElementById('track-count').innerText = playlistData.length;
+        }
+
+        function removeTrack(event, id) {
+            event.stopPropagation();
+            const index = playlistData.findIndex(p => p.id === id);
+            if (index > -1) {
+                playlistData.splice(index, 1);
+            }
+            const element = document.getElementById(`item-${id}`);
+            if (element) {
+                element.style.opacity = '0';
+                setTimeout(() => element.remove(), 200);
+            }
+            document.getElementById('track-count').innerText = playlistData.length;
+            updateBatchStats();
+        }
+
+        function loadTrack(index) {
+            if (index < 0 || index >= playlistData.length) return;
+            activeIndex = index;
+            const track = playlistData[index];
+
+            document.getElementById('current-filename').innerText = track.file.name;
+            document.getElementById('winner-text').innerText = track.data.genre;
+            document.getElementById('conf-val').innerText = track.data.confidence;
+
+            const objectUrl = URL.createObjectURL(track.file);
+            wavesurfer.load(objectUrl);
+
+            document.querySelectorAll('.playlist-item').forEach(el => el.classList.remove('active'));
+            const activeItem = document.getElementById(`item-${track.id}`);
+            if(activeItem) activeItem.classList.add('active');
+
+            renderCharts(track.data);
+
+            const grid = document.querySelector('.charts-grid');
+            grid.classList.remove('animate-enter'); 
+            void grid.offsetWidth; 
+            document.querySelectorAll('.chart-card').forEach(c => c.classList.add('animate-enter'));
+
+            document.getElementById('batch-analysis').classList.remove('hidden');
+        }
+
+        // --- SAFE CHART ENGINE ---
+        function renderCharts(data) {
+            // Reset Defaults safely
+            Chart.defaults.color = '#71717a';
+            Chart.defaults.borderColor = '#27272a';
+            Chart.defaults.font.family = 'Inter, sans-serif';
+
+            const ctxBar = document.getElementById('barChart').getContext('2d');
+            const ctxRadar = document.getElementById('radarChart').getContext('2d');
+            const ctxDoughnut = document.getElementById('doughnutChart').getContext('2d');
+
+            if(barChart) barChart.destroy();
+            if(radarChart) radarChart.destroy();
+            if(doughnutChart) doughnutChart.destroy();
+
+            // 1. BAR CHART
+            barChart = new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        data: data.scores,
+                        backgroundColor: function(context) {
+                            const chart = context.chart;
+                            const {ctx, chartArea} = chart;
+                            if (!chartArea) return '#00dc82';
+                            const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                            gradient.addColorStop(0, 'rgba(0, 220, 130, 0.05)'); 
+                            gradient.addColorStop(1, '#00dc82'); 
+                            return gradient;
+                        },
+                        borderRadius: 20,
+                        barPercentage: 0.6,
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#ffffff', font: { weight: '600' } }, grid: { display: false } },
+                        y: { display: false }
+                    }
+                }
+            });
+
+            // 2. RADAR CHART
+            radarChart = new Chart(ctxRadar, {
+                type: 'radar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Profile',
+                        data: data.scores,
+                        backgroundColor: 'rgba(0, 220, 130, 0.2)',
+                        borderColor: '#00dc82',
+                        borderWidth: 2,
+                        pointBackgroundColor: '#00dc82',
+                        pointBorderColor: '#fff',
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: '#3f3f46' },
+                            grid: { color: '#27272a' },
+                            pointLabels: { color: '#ffffff', font: { size: 11, weight: 'bold' } },
+                            ticks: { display: false, backdropColor: 'transparent' }
+                        }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // 3. DOUGHNUT CHART
+            doughnutChart = new Chart(ctxDoughnut, {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        data: data.scores,
+                        backgroundColor: ['#00dc82', '#7c3aed', '#3b82f6', '#f59e0b', '#ef4444'],
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%', 
+                    plugins: { legend: { position: 'right', labels: { color: '#ffffff', usePointStyle: true, boxWidth: 8 } } }
+                }
+            });
+        }
+
+        // --- STATS & REPORT ---
+        function updateBatchStats() {
+            if (playlistData.length === 0) return;
+            document.getElementById('total-tracks').innerText = playlistData.length;
+            let genreCounts = {};
+            let totalConf = 0;
+            playlistData.forEach(p => {
+                const g = p.data.genre;
+                genreCounts[g] = (genreCounts[g] || 0) + 1;
+                totalConf += parseFloat(p.data.confidence);
+            });
+            let dominant = Object.keys(genreCounts).reduce((a, b) => genreCounts[a] > genreCounts[b] ? a : b);
+            document.getElementById('dominant-genre').innerText = dominant;
+            let avg = (totalConf / playlistData.length).toFixed(1);
+            document.getElementById('avg-confidence').innerText = avg + "%";
+        }
+
+        // --- 5. REPORT GENERATION  ---
+        function generateReport() {
+            const modal = document.getElementById('report-modal');
+            const body = document.getElementById('report-body-content');
+            
+            if (playlistData.length === 0) {
+                alert("No tracks to report!");
+                return;
+            }
+
+            const today = new Date().toLocaleDateString();
+            
+            // Hardcoded SVG for maximum speed (No calculation needed)
+            const musicIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="r-icon"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>`;
+
+            let html = `
+                <div class="report-summary-grid">
+                    <div class="summary-card">
+                        <label>TOTAL TRACKS</label>
+                        <h4>${playlistData.length}</h4>
+                    </div>
+                    <div class="summary-card">
+                        <label>DATE</label>
+                        <h4>${today}</h4>
+                    </div>
+                </div>
+                <div class="report-list">
+            `;
+
+            playlistData.forEach(p => {
+                html += `
+                    <div class="report-row">
+                        <div class="r-info">
+                            ${musicIcon} 
+                            <span class="r-name">${p.file.name.substring(0, 30)}...</span>
+                        </div>
+                        <div class="r-meta">
+                            <span class="genre-badge">${p.data.genre}</span>
+                            <span class="conf-score">${p.data.confidence}</span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div>`;
+            
+            body.innerHTML = html;
+            
+            // Use the new class-based visibility for smooth fade
+            modal.classList.remove('hidden'); // Ensure hidden class is gone
+            // Small timeout to allow browser to register the display:flex before fading in
+            requestAnimationFrame(() => {
+                modal.classList.add('visible');
+            });
+            
+            // REMOVED: feather.replace(); <--- This was the lag cause!
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('report-modal');
+            modal.classList.remove('visible');
+            
+            // Wait for fade out to finish before hiding display
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        // --- OPTIMIZED CURSOR GLOW  ---
+        const cursor = document.getElementById('cursor-glow');
+        let mouseX = 0;
+        let mouseY = 0;
+        let cursorX = 0;
+        let cursorY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        function animateCursor() {
+            // Smooth "Lerp" (Linear Interpolation) movement
+            // This makes the cursor follow smoothly instead of jittering
+            const speed = 0.15; // 0.1 = slow, 1.0 = instant
+            
+            cursorX += (mouseX - cursorX) * speed;
+            cursorY += (mouseY - cursorY) * speed;
+
+            // Use Transform instead of Top/Left (Uses GPU)
+            cursor.style.transform = `translate3d(${cursorX}px, ${cursorY}px, 0) translate(-50%, -50%)`;
+            
+            requestAnimationFrame(animateCursor);
+        }
+        
+        // Start the loop
+        animateCursor();
+    </script>
+</body>
+</html>

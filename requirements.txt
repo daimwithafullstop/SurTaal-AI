@@ -1,0 +1,13 @@
+flask: Powers your app.py web server and the UI.
+
+tensorflow: Required to load and run your pakistani_music_model.h5.
+
+librosa: The core library used in your extract_features.py for analyzing Bhangra and Ghazal audio.
+
+pandas: Used for handling the data structures in your training and evaluation scripts.
+
+numpy: Essential for the mathematical array processing required by your AI model.
+
+matplotlib: Powers the generation of your confusion matrices and learning curves in the /results folder.
+
+scikit-learn: Likely used in your evaluation.py for calculating accuracy metrics.
