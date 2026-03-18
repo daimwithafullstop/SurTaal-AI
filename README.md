@@ -5,6 +5,16 @@ SurTaal.AI bridges the gap in Western-centric audio classification by focusing o
 
 ---
 
+### Academic Context & Future Roadmap
+This project was developed as a **Semester Project for the Machine Learning course** at Bahria University. While the current version provides a solid foundation for regional audio classification, I am actively looking to implement the following advancements:
+
+* **Dataset Expansion:** Increasing the sample size for Ghazal and Qawwali to improve precision in low-frequency melodic shifts.
+* **Real-time Detection:** Transitioning from file-based uploads to a live microphone-input stream for instant genre detection.
+* **Mobile Integration:** Developing a Flutter/React Native wrapper to bring SurTaal.AI to mobile devices.
+* **Hybrid Models:** Experimenting with CRNNs (Convolutional Recurrent Neural Networks) to better capture the temporal nuances of Desi percussion.
+
+---
+
 ### Technical Stack
 - **AI Engine:** Python, TensorFlow/Keras (CNN Model).
 - **Feature Engineering:** `Librosa` for MFCC (Mel-frequency cepstral coefficients) and spectral analysis.
