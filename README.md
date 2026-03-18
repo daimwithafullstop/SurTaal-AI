@@ -1,4 +1,4 @@
-# SurTaal.AI: Regional Music Classification
+# SurTaal.AI: Pakistani Music Classification
 **An End-to-End Deep Learning Solution for Pakistani Music**
 
 SurTaal.AI bridges the gap in Western-centric audio classification by focusing on the unique rhythmic and melodic structures of Pakistani genres. This project leverages Deep Learning to classify audio into five distinct categories: **Bhangra, Ghazal, Hip-Hop, Pop, and Qawwali**.
